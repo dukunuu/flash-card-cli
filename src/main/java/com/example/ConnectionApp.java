@@ -6,7 +6,7 @@ public class ConnectionApp implements AppInterface {
     private String URL = "jdbc:mysql://localhost/";
     private String DBName;
     private final String USER = "root";
-    private final String PASSWORD = "";
+    private final String PASSWORD = "Nekoduku1";
     private Connection connection;
     private boolean success;
 

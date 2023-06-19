@@ -12,7 +12,7 @@ import java.util.*;
 public class FlashcardCLITest {
     private String URL = "jdbc:mysql://localhost/flashcards";
     private final String USER = "root";
-    private final String PASSWORD = "";
+    private final String PASSWORD = "Nekoduku1";
     private DeckDAO dao;
     private FlashCardDAO flashCardDAO;
     private Connection connection;
