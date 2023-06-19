@@ -1,0 +1,342 @@
+package com.example;
+
+import java.sql.*;
+import java.util.*;
+
+public class FlashCardEditApp implements AppInterface {
+
+    private Scanner scanner;
+    private String tablename;
+    private List<Object> flashcards;
+    private FlashCardDAO dao;
+
+    public FlashCardEditApp(Scanner scanner, String tablename, FlashCardDAO dao) {
+        this.scanner = scanner;
+        this.tablename = tablename;
+        this.dao = dao;
+    }
+
+    @Override
+    public void launch() throws SQLException {
+        flashcards = dao.getAllElements(tablename);
+        System.out.println("1. Add New Flashcard.");
+        System.out.println("2. Remove Flashcard.");
+        System.out.println("3. Back.");
+        System.out.print("Please select an option: ");
+        boolean exit = true;
+        while (exit) {
+            String input = scanner.next();
+            switch (input) {
+                case "1":
+                    addNewFlashcard();
+                    exit = false;
+                    break;
+                case "2":
+                    removeFlashcard();
+                    exit = false;
+                    break;
+                case "3":
+                    exit = false;
+                    break;
+                default:
+                    System.out.println("Invalid input!");
+                    break;
+            }
+        }
+    }
+
+    public void addNewFlashcard() throws SQLException {
+        scanner.nextLine();
+        FlashCard newFC = new FlashCard();
+        newFC.setId(flashcards.size());
+        System.out.print("Question: ");
+        newFC.setQuestion(scanner.nextLine());
+        System.out.print("Answer: ");
+        newFC.setAnswer(scanner.nextLine());
+        if (dao.add(tablename, newFC)) {
+            System.out.println("\nFlashCard added successfully;\n");
+        }
+    }
+
+    public void removeFlashcard() throws SQLException {
+        if (flashcards.isEmpty()) {
+            System.out.println("\nThere are no flashcards in the database.");
+            return;
+        }
+        for (Object c : flashcards) {
+            System.out.println(c.toString());
+        }
+        scanner.nextLine();
+        System.out.print("\nEnter the ID of the flashcard you want to remove: ");
+        int id = scanner.nextInt();
+        if (dao.remove(tablename, id)) {
+            System.out.println("\nFlashcard removed successfully!\n");
+        } else {
+            System.out.println("\nFailed to remove flashcard.\n");
+        }
+    }
+
+    @Override
+    public String printDescription() {
+        return "Add/Remove Flashcards.";
+    }
+}
+
+package com.example;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class FlashCardDAO implements DAOInterface {
+    private Connection connection;
+    private int deckId;
+    private List<Object> flashcards;
+
+    public FlashCardDAO(Connection connection, int deckId) {
+        this.connection = connection;
+        this.deckId = deckId;
+    }
+
+    @Override
+    public List<Object> getAllElements(String tableName) throws SQLException {
+        flashcards = new ArrayList<>();
+        String sql = "SELECT * FROM " + tableName + " WHERE deck_id=?";
+        PreparedStatement statement = connection.prepareStatement(sql);
+        statement.setInt(1, deckId);
+        ResultSet results = statement.executeQuery();
+        while (results.next()) {
+            int id = results.getInt(1);
+            String question = results.getString(2);
+            String answer = results.getString(3);
+            FlashCard fc = new FlashCard(id, question, answer, deckId);
+            flashcards.add(fc);
+        }
+        statement.close();
+        return flashcards;
+    }
+
+    @Override
+    public boolean add(String tableName, Object element) throws SQLException {
+        flashcards.add(element);
+        String sql = "INSERT INTO " + tableName + " (id,question, answer, deck_ID) VALUES (?,?, ?, ?)";
+        PreparedStatement statement = connection.prepareStatement(sql);
+        statement.setInt(1, (deckId*100+flashcards.size()));
+        statement.setString(2, ((FlashCard) element).getQuestion());
+        statement.setString(3, ((FlashCard) element).getAnswer());
+        statement.setInt(4, deckId);
+        int rowsInserted = statement.executeUpdate();
+        statement.close();
+        return rowsInserted > 0;
+    }
+
+    @Override
+    public boolean remove(String tableName, int id) throws SQLException {
+        flashcards.remove(id-1);
+        String sql = "DELETE FROM " + tableName + " WHERE id = ?";
+        PreparedStatement statement = connection.prepareStatement(sql);
+        statement.setInt(1, deckId*100+id);
+        int rowsDeleted = statement.executeUpdate();
+        statement.close();
+        updateID(tableName);
+        return rowsDeleted > 0;
+    }
+
+    public void updateID(String tablename) throws SQLException {
+        flashcards = getAllElements(tablename);
+        for(int i=0;i<flashcards.size();i++){
+            Object flashcard=flashcards.get(i);
+            String sql = "UPDATE " + tablename + " SET id=? WHERE id=? AND deck_id=?";
+            PreparedStatement statement = connection.prepareStatement(sql);
+            statement.setInt(1, 100*deckId+i+1);
+            statement.setInt(2, ((FlashCard) flashcard).getID());
+            statement.setInt(3, deckId);
+            statement.execute();
+            statement.close();
+        }
+    }
+
+    public List<FlashCard> getRandomizedFlashcards(String tableName) throws SQLException {
+        String sql = "SELECT * FROM " + tableName + " ORDER BY RAND() LIMIT 100";
+        List<FlashCard> flashcards = new ArrayList<>();
+
+        try (Statement statement = connection.createStatement()) {
+            ResultSet result = statement.executeQuery(sql);
+
+            while (result.next()) {
+                int id = result.getInt("id");
+                String question = result.getString("question");
+                String answer = result.getString("answer");
+                flashcards.add(new FlashCard(id, question, answer, deckId));
+            }
+        }
+        return flashcards;
+    }
+
+    @Override
+    public void createTable(String tableName) throws SQLException {
+        String sql = "CREATE TABLE IF NOT EXISTS " + tableName + "(\n"
+                + "id INTEGER PRIMARY KEY AUTO_INCREMENT,\n"
+                + "deck_ID INTEGER NOT NULL,\n"
+                + "question TEXT NOT NULL,\n"
+                + "answer TEXT NOT NULL,\n"
+                + "CONSTRAINT fk_deck_id FOREIGN KEY (deck_ID) REFERENCES decks(id) ON UPDATE CASCAdE\n"
+                + "ON DELETE CASCADE"
+                + ");";
+        Statement statement = connection.createStatement();
+        statement.execute(sql);
+        statement.close();
+    }
+
+    @Override
+    public void removeTable(String tableName) throws SQLException {
+        String sql = "DROP TABLE " + tableName;
+        Statement statement = connection.createStatement();
+        statement.execute(sql);
+        statement.close();
+    }
+}
+
+package com.example;
+
+import java.sql.*;
+import java.util.*;
+
+public class PlayApp implements AppInterface {
+    private List<Object> flashcards;
+    private Scanner scanner;
+    private FlashCardDAO dataAccess;
+    private String tablename;
+
+    public PlayApp(Scanner scanner, FlashCardDAO dataAccess, String tablename) {
+        this.scanner = scanner;
+        this.dataAccess = dataAccess;
+        this.tablename = tablename;
+    }
+
+    @Override
+    public void launch() throws SQLException {
+        flashcards = dataAccess.getAllElements(tablename);
+        if (flashcards.isEmpty()) {
+            System.out.println("There are no flashcards in the database.");
+            return;
+        }
+        scanner.nextLine();
+        int correctAnswers = 0;
+        int totalQuestions = 0;
+        List<FlashCard> randomFC = dataAccess.getRandomizedFlashcards(tablename);
+        for (FlashCard flashCard : randomFC) {
+            String question = flashCard.getQuestion();
+            String answer = flashCard.getAnswer();
+            System.out.println("Question " + (totalQuestions + 1) + ": " + question);
+            System.out.print("Answer: ");
+            String userInput = scanner.nextLine();
+            if (userInput.equalsIgnoreCase(answer)) {
+                System.out.println("Correct!");
+                correctAnswers++;
+            } else {
+                System.out.println("Incorrect. The answer is: " + answer);
+            }
+            System.out.println();
+            totalQuestions++;
+        }
+        if (totalQuestions > 0) {
+            double percentageCorrect = (double) correctAnswers / totalQuestions * 100;
+            System.out.printf("You got %d out of %d questions correct (%.2f%%).%n%n", correctAnswers, totalQuestions,
+                    percentageCorrect);
+        }
+    }
+
+    @Override
+    public String printDescription() {
+        return "Test your knowledge.";
+    }
+}
+
+package com.example;
+
+import java.sql.*;
+import java.util.*;
+
+public class DeckDAO implements DAOInterface {
+    private Connection conn;
+    private List<Object> decks;
+
+    public DeckDAO(Connection conn) {
+        this.conn = conn;
+    }
+
+    @Override
+    public List<Object> getAllElements(String tableName) throws SQLException {
+        List<Object> decks = new ArrayList<>();
+        String sql = "SELECT * FROM " + tableName;
+        Statement statement = conn.createStatement();
+        ResultSet result = statement.executeQuery(sql);
+
+        while (result.next()) {
+            int id = result.getInt("id");
+            String deckName = result.getString("name");
+            Deck deck = new Deck(id, deckName);
+            decks.add(deck);
+        }
+
+        statement.close();
+        return decks;
+    }
+
+    @Override
+    public boolean add(String tableName, Object element) throws SQLException {
+        String sql = "INSERT INTO " + tableName + " (id,name) VALUES (?,?)";
+        decks = getAllElements(tableName);
+        decks.add(element);
+        PreparedStatement statement = conn.prepareStatement(sql);
+        statement.setInt(1, decks.size());
+        statement.setString(2, ((Deck) element).getName());
+        int rowsInserted = statement.executeUpdate();
+        statement.close();
+        return rowsInserted > 0;
+    }
+
+    @Override
+    public boolean remove(String tableName, int id) throws SQLException {
+        String sql = "DELETE FROM " + tableName + " WHERE id = ?";
+        PreparedStatement statement = conn.prepareStatement(sql);
+        statement.setInt(1, id);
+        int rowsDeleted = statement.executeUpdate();
+        statement.close();
+        decks = getAllElements(tableName);
+        sql = "UPDATE " + tableName + " SET id=? WHERE id=?";
+        if (rowsDeleted > 0) {
+            for (int count = 0; count < decks.size(); count++) {
+                if (((Deck) decks.get(count)).getId() != count + 1) {
+                    PreparedStatement resetStatement = conn.prepareStatement(sql);
+                    resetStatement = conn.prepareStatement(sql);
+                    resetStatement.setInt(1, count + 1);
+                    resetStatement.setInt(2, ((Deck) decks.get(count)).getId());
+                    resetStatement.execute();
+                    resetStatement.close();
+                }
+            }
+        }
+        return rowsDeleted > 0;
+    }
+
+    @Override
+    public void createTable(String tableName) throws SQLException {
+        String sql = "CREATE TABLE IF NOT EXISTS " + tableName + "(\n"
+                + "id INTEGER PRIMARY KEY AUTO_INCREMENT,\n"
+                + "deck_Name TEXT NOT NULL\n"
+                + ")";
+        Statement statement = conn.createStatement();
+        statement.execute(sql);
+        statement.close();
+    }
+
+    @Override
+    public void removeTable(String tableName) throws SQLException {
+        String sql = "DROP TABLE " + tableName;
+        Statement statement = conn.createStatement();
+        statement.execute(sql);
+        statement.close();
+    }
+}
